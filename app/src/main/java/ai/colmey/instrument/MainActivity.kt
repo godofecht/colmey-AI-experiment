@@ -100,10 +100,10 @@ class MainActivity : Activity() {
             .addOnSuccessListener { labels ->
                 val match = labels.mapNotNull { label ->
                     val name = label.text.lowercase(Locale.ROOT)
-                    val entry = origins.entries.firstOrNull { name.contains(it.key) || it.key.contains(name) && name.length > 3 }
+                    val entry = origins.entries.firstOrNull { name.contains(it.key) }
                     if (entry != null) Triple(entry.key, entry.value, label.confidence) else null
                 }.maxByOrNull { it.third }
-                result.text = if (match == null) {
+                result.text = if (match == null || match.third < 0.50f) {
                     "Instrument not confidently identified. The bundled general-purpose classifier cannot recognise many regional or rare instruments. Try a clear, close photograph."
                 } else {
                     "${match.first.replaceFirstChar { it.titlecase(Locale.ROOT) }}\nConfidence: ${(match.third * 100).toInt()}% (general image label)\n\n${match.second}\n\nThis describes the instrument family's history, not the provenance of the photographed object."
