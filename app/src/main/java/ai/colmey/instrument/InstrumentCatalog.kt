@@ -11,6 +11,11 @@ object InstrumentCatalog {
         "violin" to InstrumentOrigin("Northern Italy", "The violin developed in northern Italy during the sixteenth century.")
     )
 
+    fun match(label: String): Pair<String, InstrumentOrigin>? {
+        val normalized = label.lowercase(java.util.Locale.ROOT)
+        return entries.entries.firstOrNull { normalized.contains(it.key) }?.let { it.key to it.value }
+    }
+
     fun origin(label: String): InstrumentOrigin? {
         val normalized = label.lowercase(java.util.Locale.ROOT)
         return entries.entries.firstOrNull { normalized.contains(it.key) }?.value
