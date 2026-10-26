@@ -15,14 +15,18 @@ import kotlin.math.exp
  * Specialist five-class ViT. Model and processor metadata are bundled by CI;
  * never silently substitute the generic image labeler for a missing model.
  */
+data class InstrumentScore(val label: String, val probability: Float)
+data class VisionResult(val scores: List<InstrumentScore>, val elapsedMs: Long, val imageWidth: Int, val imageHeight: Int)
+
 class InstrumentVision(private val context: Context) {
-    fun identify(uri: Uri): InstrumentMatch? {
+    fun identify(uri: Uri): VisionResult {
         val original = context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
             ?: throw IllegalArgumentException("Unable to decode image")
-        return identify(original)
+        return try { identify(original) } finally { original.recycle() }
     }
 
-    fun identify(bitmap: Bitmap): InstrumentMatch? {
+    fun identify(bitmap: Bitmap): VisionResult {
+        val started = android.os.SystemClock.elapsedRealtime()
         val metadata = context.assets.open("instrument_preprocessor.json").bufferedReader().use { JSONObject(it.readText()) }
         val config = context.assets.open("instrument_config.json").bufferedReader().use { JSONObject(it.readText()) }
         val sizeObject = metadata.optJSONObject("size")
@@ -59,14 +63,16 @@ class InstrumentVision(private val context: Context) {
             OnnxTensor.createTensor(env, FloatBuffer.wrap(input), longArrayOf(1, 3, height.toLong(), width.toLong())).use { tensor ->
                 session.run(mapOf(name to tensor)).use { result ->
                     val output = (result[0].value as Array<*>)[0] as FloatArray
-                    val best = output.indices.maxByOrNull { output[it] } ?: return null
-                    val max = output[best]
-                    val denominator = output.sumOf { exp((it - max).toDouble()) }
-                    val probability = (1.0 / denominator).toFloat()
-                    if (probability < 0.55f) return null
-                    val label = config.getJSONObject("id2label").getString(best.toString()).lowercase()
-                    val match = InstrumentCatalog.match(label) ?: return null
-                    return InstrumentMatch(match.first, match.second, probability)
+                    require(output.isNotEmpty() && output.all { it.isFinite() }) { "Invalid model output" }
+                    val maximum = output.maxOrNull() ?: error("Empty model output")
+                    val exponents = output.map { exp((it - maximum).toDouble()) }
+                    val denominator = exponents.sum()
+                    val labels = config.getJSONObject("id2label")
+                    require(output.size == labels.length()) { "Output label count mismatch" }
+                    val scores = output.indices.map { index ->
+                        InstrumentScore(labels.getString(index.toString()), (exponents[index] / denominator).toFloat())
+                    }.sortedByDescending { it.probability }
+                    return VisionResult(scores, android.os.SystemClock.elapsedRealtime() - started, bitmap.width, bitmap.height)
                 }
             }
         }
