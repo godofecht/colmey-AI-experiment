@@ -29,7 +29,7 @@ class InstrumentAppSmokeTest {
             // A blank image need not be recognised; this checks that the specialist
             // ONNX model loads, preprocesses pixels and returns without exceptions.
             val inference = InstrumentVision(context).identify(bitmap)
-            org.junit.Assert.assertEquals(5, inference.scores.size)
+            org.junit.Assert.assertEquals(55, inference.scores.size)
             org.junit.Assert.assertEquals(1.0, inference.scores.sumOf { it.probability.toDouble() }, 0.002)
             org.junit.Assert.assertTrue(inference.scores.zipWithNext().all { it.first.probability >= it.second.probability })
         } finally {
