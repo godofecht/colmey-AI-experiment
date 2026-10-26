@@ -169,3 +169,12 @@ jobs:
         run: |
           TAG="v0.1.${GITHUB_RUN_NUMBER}"
           gh release create "$TAG" release/colmey-ai.apk --target "${GITHUB_SHA}" --title "Colmey AI $TAG (Android preview)" --notes "Persistently signed Android preview. The app checks for newer GitHub releases on launch and asks before opening the download. Older debug-signed installations require a one-time reinstall." --prerelease
+      - name: Publish debug preview when signing is not configured
+        if: steps.signing.outputs.available != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cp release/app-debug.apk release/colmey-ai-debug.apk
+          TAG="v0.1.${GITHUB_RUN_NUMBER}"
+          gh release create "$TAG" release/colmey-ai-debug.apk --target "${GITHUB_SHA}" --title "Colmey AI $TAG (debug preview)" --notes "Debug-signed preview APK. Android cannot reliably install subsequent builds as in-place updates until a stable signing key is configured. See docs/ANDROID_SIGNING.md." --prerelease
