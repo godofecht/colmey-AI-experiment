@@ -2,8 +2,10 @@ package ai.colmey.instrument
 
 import android.app.Activity
 import android.content.Intent
-import android.graphics.Bitmap
 import android.os.Bundle
+import androidx.core.content.FileProvider
+import java.io.File
+import android.net.Uri
 import android.provider.MediaStore
 import android.view.Gravity
 import android.app.AlertDialog
@@ -20,6 +22,7 @@ import java.util.Locale
 
 class MainActivity : Activity() {
     private lateinit var result: TextView
+    private var captureUri: Uri? = null
     private val labeler by lazy {
         ImageLabeling.getClient(ImageLabelerOptions.DEFAULT_OPTIONS)
     }
@@ -43,8 +46,13 @@ class MainActivity : Activity() {
         val camera = Button(this).apply {
             text = "Take photo"
             setOnClickListener {
-                @Suppress("DEPRECATION")
-                startActivityForResult(Intent(MediaStore.ACTION_IMAGE_CAPTURE), 10)
+                val directory = File(cacheDir, "camera").apply { mkdirs() }
+                val photo = File.createTempFile("instrument-", ".jpg", directory)
+                captureUri = FileProvider.getUriForFile(this@MainActivity, "$packageName.fileprovider", photo)
+                startActivityForResult(Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                    putExtra(MediaStore.EXTRA_OUTPUT, captureUri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                }, 10)
             }
         }
         val gallery = Button(this).apply {
@@ -62,6 +70,7 @@ class MainActivity : Activity() {
         }
         layout.addView(browse)
         layout.addView(result)
+        captureUri = savedInstanceState?.getString("capture_uri")?.let(Uri::parse)
         setContentView(layout)
         checkForUpdates()
     }
@@ -69,15 +78,11 @@ class MainActivity : Activity() {
     @Deprecated("Android activity result compatibility")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode != RESULT_OK || data == null) return
+        if (resultCode != RESULT_OK) return
         val image = try {
             when (requestCode) {
-                10 -> {
-                    @Suppress("DEPRECATION")
-                    val bitmap = data.extras?.get("data") as? Bitmap ?: return
-                    InputImage.fromBitmap(bitmap, 0)
-                }
-                11 -> InputImage.fromFilePath(this, data.data ?: return)
+                10 -> InputImage.fromFilePath(this, captureUri ?: return)
+                11 -> InputImage.fromFilePath(this, data?.data ?: return)
                 else -> return
             }
         } catch (e: Exception) {
@@ -133,6 +138,11 @@ class MainActivity : Activity() {
                 result.text = "${name.replaceFirstChar { it.titlecase(Locale.ROOT) }}\nRegion: ${origin.region}\n\n${origin.history}\n\nSelected manually; not identified from the photograph."
             }
             .show()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        captureUri?.let { outState.putString("capture_uri", it.toString()) }
     }
 
     override fun onDestroy() {
