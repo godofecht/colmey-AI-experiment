@@ -14,14 +14,23 @@ import android.os.Looper
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.ScrollView
+import android.widget.ImageView
+import android.widget.ProgressBar
+import android.view.View
 import java.util.Locale
 
 class MainActivity : Activity() {
     private lateinit var result: TextView
+    private lateinit var status: TextView
+    private lateinit var preview: ImageView
+    private lateinit var progress: ProgressBar
+    private lateinit var scoresContainer: LinearLayout
     private var captureUri: Uri? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val scroll = ScrollView(this)
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
@@ -54,7 +63,22 @@ class MainActivity : Activity() {
                 startActivityForResult(Intent(Intent.ACTION_GET_CONTENT).apply { type = "image/*" }, 11)
             }
         }
+        status = TextView(this).apply { text = "Ready · Offline specialist model"; textSize = 15f }
+        preview = ImageView(this).apply {
+            adjustViewBounds = true
+            maxHeight = 720
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            contentDescription = "Photograph being analyzed"
+        }
+        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            isIndeterminate = true
+            visibility = View.GONE
+        }
+        scoresContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         layout.addView(title)
+        layout.addView(status)
+        layout.addView(preview)
+        layout.addView(progress)
         layout.addView(camera)
         layout.addView(gallery)
         val browse = Button(this).apply {
@@ -63,8 +87,10 @@ class MainActivity : Activity() {
         }
         layout.addView(browse)
         layout.addView(result)
+        layout.addView(scoresContainer)
         captureUri = savedInstanceState?.getString("capture_uri")?.let(Uri::parse)
-        setContentView(layout)
+        scroll.addView(layout)
+        setContentView(scroll)
         checkForUpdates()
     }
 
@@ -77,24 +103,60 @@ class MainActivity : Activity() {
             11 -> data?.data
             else -> null
         } ?: return
-        result.text = "Identifying instrument offline…"
+        status.text = "Step 1/3 · Loading photo"
+        progress.visibility = View.VISIBLE
+        scoresContainer.removeAllViews()
+        preview.setImageURI(uri)
+        result.text = "Running specialist offline model…"
         Thread {
-            val recognition = try {
-                InstrumentVision(applicationContext).identify(uri)
+            try {
+                runOnUiThread { status.text = "Step 2/3 · Preprocessing and running ONNX model" }
+                val recognition = InstrumentVision(applicationContext).identify(uri)
+                runOnUiThread {
+                    progress.visibility = View.GONE
+                    status.text = "Step 3/3 · Completed in ${recognition.elapsedMs} ms · ${recognition.imageWidth} × ${recognition.imageHeight} pixels"
+                    showScores(recognition)
+                }
             } catch (e: Exception) {
                 runOnUiThread {
-                    result.text = "Specialist model unavailable or inference failed: ${e.localizedMessage}"
-                }
-                return@Thread
-            }
-            runOnUiThread {
-                result.text = if (recognition == null) {
-                    "Instrument not confidently identified by the specialist five-class model. Try another photo or browse the catalog."
-                } else {
-                    "${recognition.name.replaceFirstChar { it.titlecase(Locale.ROOT) }}\\nConfidence: ${(recognition.confidence * 100).toInt()}% (specialist model)\\n\\n${recognition.origin.history}\\nRegion: ${recognition.origin.region}"
+                    progress.visibility = View.GONE
+                    status.text = "Inference failed"
+                    result.text = "Model error: ${e.localizedMessage}"
                 }
             }
         }.start()
+    }
+
+    private fun showScores(recognition: VisionResult) {
+        val top = recognition.scores.firstOrNull()
+        val match = top?.let { InstrumentCatalog.match(it.label) }
+        val accepted = top != null && top.probability >= 0.55f && match != null
+        result.text = if (accepted && top != null && match != null) {
+            "${match.first.replaceFirstChar { it.titlecase(Locale.ROOT) }} — ${"%.1f".format(Locale.ROOT, top.probability * 100)}% model confidence\n${match.second.history}\nRegion: ${match.second.region}"
+        } else {
+            "Uncertain identification. These are relative scores across the model's five known instrument classes."
+        }
+        scoresContainer.addView(TextView(this).apply {
+            text = "All model predictions (five classes)"
+            textSize = 19f
+            setPadding(0, 24, 0, 12)
+        })
+        recognition.scores.forEach { prediction ->
+            val name = prediction.label.replaceFirstChar { it.titlecase(Locale.ROOT) }
+            scoresContainer.addView(TextView(this).apply {
+                text = "$name — ${"%.1f".format(Locale.ROOT, prediction.probability * 100)}%"
+                textSize = 16f
+            })
+            scoresContainer.addView(ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+                max = 1000
+                progress = (prediction.probability * 1000).toInt()
+                contentDescription = "$name confidence ${(prediction.probability * 100).toInt()} percent"
+            })
+        }
+        scoresContainer.addView(TextView(this).apply {
+            text = "Model: musical-instruments ViT (ONNX) · offline. Softmax scores compare five classes and are not calibrated certainty."
+            setPadding(0, 18, 0, 20)
+        })
     }
 
     private fun checkForUpdates() {
