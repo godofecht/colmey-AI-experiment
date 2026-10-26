@@ -102,7 +102,7 @@ class MainActivity : Activity() {
     private fun checkForUpdates() {
         Thread {
             val update = try {
-                UpdateChecker.fetch(BuildConfig.VERSION_CODE)
+                UpdateChecker.fetch(packageManager.getPackageInfo(packageName, 0).versionCode)
             } catch (_: Exception) {
                 null
             }
