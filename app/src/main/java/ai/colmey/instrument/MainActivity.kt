@@ -89,7 +89,7 @@ class MainActivity : Activity() {
                 result.text = if (match == null) {
                     "No reliable instrument match. The bundled general-purpose image model does not recognise many instruments. Use Browse instruments to explore the offline catalog."
                 } else {
-                    "${match.name.replaceFirstChar { it.titlecase(Locale.ROOT) }}\\nConfidence: ${(match.confidence * 100).toInt()}% (general image label)\\n\\n${match.origin.history}\\nRegion: ${match.origin.region}\\n\\nThis describes the instrument family's history, not the provenance of the photographed object."
+                    "${match.name.replaceFirstChar { it.titlecase(Locale.ROOT) }}\nConfidence: ${(match.confidence * 100).toInt()}% (general image label)\n\n${match.origin.history}\nRegion: ${match.origin.region}\n\nThis describes the instrument family's history, not the provenance of the photographed object."
                 }
             }
             .addOnFailureListener { e -> result.text = "Local recognition failed: ${e.localizedMessage}" }
@@ -102,7 +102,7 @@ class MainActivity : Activity() {
             .setItems(names.map { it.replaceFirstChar { char -> char.titlecase(Locale.ROOT) } }.toTypedArray()) { _, index ->
                 val name = names[index]
                 val origin = InstrumentCatalog.origin(name) ?: return@setItems
-                result.text = "${name.replaceFirstChar { it.titlecase(Locale.ROOT) }}\\nRegion: ${origin.region}\\n\\n${origin.history}\\n\\nSelected manually; not identified from the photograph."
+                result.text = "${name.replaceFirstChar { it.titlecase(Locale.ROOT) }}\nRegion: ${origin.region}\n\n${origin.history}\n\nSelected manually; not identified from the photograph."
             }
             .show()
     }
