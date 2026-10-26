@@ -63,7 +63,7 @@ class MainActivity : Activity() {
                 startActivityForResult(Intent(Intent.ACTION_GET_CONTENT).apply { type = "image/*" }, 11)
             }
         }
-        status = TextView(this).apply { text = "Ready · Offline specialist model"; textSize = 15f }
+        status = TextView(this).apply { text = "Ready · MobileCLIP2 offline model"; textSize = 15f }
         preview = ImageView(this).apply {
             adjustViewBounds = true
             maxHeight = 720
@@ -130,18 +130,18 @@ class MainActivity : Activity() {
     private fun showScores(recognition: VisionResult) {
         val top = recognition.scores.firstOrNull()
         val match = top?.let { InstrumentCatalog.match(it.label) }
-        val accepted = top != null && top.probability >= 0.55f && match != null
-        result.text = if (accepted && top != null && match != null) {
-            "${match.first.replaceFirstChar { it.titlecase(Locale.ROOT) }} — ${"%.1f".format(Locale.ROOT, top.probability * 100)}% model confidence\n${match.second.history}\nRegion: ${match.second.region}"
+        val accepted = top != null && top.probability >= 0.20f
+        result.text = if (accepted && top != null) {
+            "${top.label.replaceFirstChar { it.titlecase(Locale.ROOT) }} — ${"%.1f".format(Locale.ROOT, top.probability * 100)}% relative model score\n${match?.second?.history ?: "No curated history available yet."}\nRegion: ${match?.second?.region ?: "Not yet catalogued"}"
         } else {
-            "Uncertain identification. These are relative scores across the model's five known instrument classes."
+            "Uncertain identification. These are relative scores across the model's instrument descriptions."
         }
         scoresContainer.addView(TextView(this).apply {
-            text = "All model predictions (five classes)"
+            text = "Top 10 instrument matches"
             textSize = 19f
             setPadding(0, 24, 0, 12)
         })
-        recognition.scores.forEach { prediction ->
+        recognition.scores.take(10).forEach { prediction ->
             val name = prediction.label.replaceFirstChar { it.titlecase(Locale.ROOT) }
             scoresContainer.addView(TextView(this).apply {
                 text = "$name — ${"%.1f".format(Locale.ROOT, prediction.probability * 100)}%"
@@ -154,7 +154,7 @@ class MainActivity : Activity() {
             })
         }
         scoresContainer.addView(TextView(this).apply {
-            text = "Model: musical-instruments ViT (ONNX) · offline. Softmax scores compare five classes and are not calibrated certainty."
+            text = "Model: MobileCLIP2-S0 (ONNX) · offline. Scores are relative similarities across 55 instruments, not calibrated certainty."
             setPadding(0, 18, 0, 20)
         })
     }
