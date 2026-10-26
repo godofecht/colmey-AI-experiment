@@ -64,7 +64,10 @@ class InstrumentVision(private val context: Context) {
             val name = session.inputNames.single()
             OnnxTensor.createTensor(env, FloatBuffer.wrap(input), longArrayOf(1, 3, height.toLong(), width.toLong())).use { tensor ->
                 session.run(mapOf(name to tensor)).use { result ->
-                    val output = (result[0].value as Array<*>)[0] as FloatArray
+                    val embeddingIndex = session.outputNames.toList().indexOf("image_embeds")
+                    val outputValue = result[if (embeddingIndex >= 0) embeddingIndex else 0].value
+                    val output = (outputValue as Array<*>)[0] as? FloatArray
+                        ?: throw IllegalStateException("Expected 2D image embedding")
                     require(output.isNotEmpty() && output.all { it.isFinite() }) { "Invalid MobileCLIP output" }
                     val norm = sqrt(output.sumOf { (it * it).toDouble() }).toFloat().coerceAtLeast(1e-9f)
                     val raw = (0 until embeddings.length()).map { index ->
