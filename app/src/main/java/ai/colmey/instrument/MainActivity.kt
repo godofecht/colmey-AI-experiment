@@ -14,17 +14,11 @@ import android.os.Looper
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.label.ImageLabeling
-import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
 import java.util.Locale
 
 class MainActivity : Activity() {
     private lateinit var result: TextView
     private var captureUri: Uri? = null
-    private val labeler by lazy {
-        ImageLabeling.getClient(ImageLabelerOptions.DEFAULT_OPTIONS)
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -78,29 +72,29 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (resultCode != RESULT_OK) return
-        val image = try {
-            when (requestCode) {
-                10 -> InputImage.fromFilePath(this, captureUri ?: return)
-                11 -> InputImage.fromFilePath(this, data?.data ?: return)
-                else -> return
+        val uri = when (requestCode) {
+            10 -> captureUri
+            11 -> data?.data
+            else -> null
+        } ?: return
+        result.text = "Identifying instrument offline…"
+        Thread {
+            val recognition = try {
+                InstrumentVision(applicationContext).identify(uri)
+            } catch (e: Exception) {
+                runOnUiThread {
+                    result.text = "Specialist model unavailable or inference failed: ${e.localizedMessage}"
+                }
+                return@Thread
             }
-        } catch (e: Exception) {
-            result.text = "Could not open image: ${e.localizedMessage}"
-            return
-        }
-        result.text = "Identifying locally…"
-        labeler.process(image)
-            .addOnSuccessListener { labels ->
-                val match = InstrumentRecognition.identify(
-                    labels.map { RecognitionLabel(it.text, it.confidence) }
-                )
-                result.text = if (match == null) {
-                    "No reliable instrument match. The bundled general-purpose image model does not recognise many instruments. Use Browse instruments to explore the offline catalog."
+            runOnUiThread {
+                result.text = if (recognition == null) {
+                    "Instrument not confidently identified by the specialist five-class model. Try another photo or browse the catalog."
                 } else {
-                    "${match.name.replaceFirstChar { it.titlecase(Locale.ROOT) }}\nConfidence: ${(match.confidence * 100).toInt()}% (general image label)\n\n${match.origin.history}\nRegion: ${match.origin.region}\n\nThis describes the instrument family's history, not the provenance of the photographed object."
+                    "${recognition.name.replaceFirstChar { it.titlecase(Locale.ROOT) }}\\nConfidence: ${(recognition.confidence * 100).toInt()}% (specialist model)\\n\\n${recognition.origin.history}\\nRegion: ${recognition.origin.region}"
                 }
             }
-            .addOnFailureListener { e -> result.text = "Local recognition failed: ${e.localizedMessage}" }
+        }.start()
     }
 
     private fun checkForUpdates() {
@@ -145,7 +139,6 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
-        labeler.close()
         super.onDestroy()
     }
 }
