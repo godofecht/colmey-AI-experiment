@@ -51,7 +51,14 @@ for item in input_info:
         raise RuntimeError("Unsupported text model input " + item.name)
     feeds[item.name] = tokens[item.name].astype(np.int64)
 outputs = session.run(None, feeds)
-vectors = np.asarray(outputs[0])
+output_names = [output.name for output in session.get_outputs()]
+print("Text outputs:", [(name, value.shape) for name, value in zip(output_names, outputs)])
+candidate = next((value for name, value in zip(output_names, outputs) if name in ("text_embeds", "text_features", "embeddings")), None)
+if candidate is None:
+    candidate = next((value for value in outputs if value.ndim == 2 and value.shape[0] == len(INSTRUMENTS)), None)
+if candidate is None:
+    raise RuntimeError("No batch-aligned text embedding output")
+vectors = np.asarray(candidate, dtype=np.float32)
 if vectors.ndim != 2 or vectors.shape[0] != len(INSTRUMENTS):
     raise RuntimeError("Unexpected text embedding dimensions " + str(vectors.shape))
 vectors /= np.maximum(np.linalg.norm(vectors, axis=1, keepdims=True), 1e-9)
@@ -60,4 +67,6 @@ vectors /= np.maximum(np.linalg.norm(vectors, axis=1, keepdims=True), 1e-9)
     for name, vector in zip(INSTRUMENTS, vectors)
 ]))
 text_path.unlink()
+ort.InferenceSession(str(ASSETS / "instrument.onnx"), providers=["CPUExecutionProvider"])
+print("Vision model parsed successfully")
 print("Packaged MobileCLIP2-S0 and", len(INSTRUMENTS), "instrument text embeddings")
