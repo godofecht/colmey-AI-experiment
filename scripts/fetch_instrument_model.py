@@ -44,7 +44,7 @@ with urllib.request.urlopen("https://huggingface.co/plhery/mobileclip2-onnx/reso
     shutil.copyfileobj(response, out)
 tokenizer = Tokenizer.from_file(str(tokenizer_file))
 tokenizer.enable_truncation(max_length=77)
-tokenizer.enable_padding(length=77, pad_id=0, pad_token="<pad>")
+tokenizer.enable_padding(length=77, pad_id=49407, pad_token="<|endoftext|>")
 session = ort.InferenceSession(str(text_path), providers=["CPUExecutionProvider"])
 input_info = session.get_inputs()
 print("Text model inputs:", [(i.name, i.shape, i.type) for i in input_info])
@@ -55,7 +55,7 @@ for item in input_info:
     if item.name == "input_ids":
         feeds[item.name] = tokens
     elif item.name == "attention_mask":
-        feeds[item.name] = (tokens != 0).astype(np.int64)
+        feeds[item.name] = (tokens != 49407).astype(np.int64)
     else:
         raise RuntimeError("Unsupported text model input " + item.name)
 outputs = session.run(None, feeds)
@@ -76,6 +76,16 @@ vectors /= np.maximum(np.linalg.norm(vectors, axis=1, keepdims=True), 1e-9)
 ]))
 text_path.unlink()
 tokenizer_file.unlink()
-ort.InferenceSession(str(ASSETS / "instrument.onnx"), providers=["CPUExecutionProvider"])
-print("Vision model parsed successfully")
+vision = ort.InferenceSession(str(ASSETS / "instrument.onnx"), providers=["CPUExecutionProvider"])
+vision_inputs = vision.get_inputs()
+vision_outputs = vision.get_outputs()
+print("Vision inputs:", [(i.name, i.shape, i.type) for i in vision_inputs])
+print("Vision outputs:", [(o.name, o.shape, o.type) for o in vision_outputs])
+if len(vision_inputs) != 1 or vision_inputs[0].name != "pixel_values":
+    raise RuntimeError("Unexpected vision model input signature")
+if not any(o.name == "image_embeds" for o in vision_outputs):
+    raise RuntimeError("Vision model does not expose image_embeds")
+if vectors.shape[1] != 512:
+    raise RuntimeError("Expected MobileCLIP2-S0 512-dimensional embeddings")
+print("Vision model parsed and embeddings validated")
 print("Packaged MobileCLIP2-S0 and", len(INSTRUMENTS), "instrument text embeddings")
