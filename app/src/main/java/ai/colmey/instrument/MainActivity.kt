@@ -7,6 +7,9 @@ import android.os.Bundle
 import android.provider.MediaStore
 import android.view.Gravity
 import android.app.AlertDialog
+import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -60,6 +63,7 @@ class MainActivity : Activity() {
         layout.addView(browse)
         layout.addView(result)
         setContentView(layout)
+        checkForUpdates()
     }
 
     @Deprecated("Android activity result compatibility")
@@ -93,6 +97,30 @@ class MainActivity : Activity() {
                 }
             }
             .addOnFailureListener { e -> result.text = "Local recognition failed: ${e.localizedMessage}" }
+    }
+
+    private fun checkForUpdates() {
+        Thread {
+            val update = try {
+                UpdateChecker.fetch(BuildConfig.VERSION_CODE)
+            } catch (_: Exception) {
+                null
+            }
+            if (update != null) {
+                Handler(Looper.getMainLooper()).post {
+                    if (!isFinishing && !isDestroyed) {
+                        AlertDialog.Builder(this)
+                            .setTitle("Colmey AI update available")
+                            .setMessage("Build ${update.build} is available. Open the verified GitHub release to download it? Android will ask you to confirm installation.")
+                            .setPositiveButton("Download") { _, _ ->
+                                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(update.url)))
+                            }
+                            .setNegativeButton("Later", null)
+                            .show()
+                    }
+                }
+            }
+        }.start()
     }
 
     private fun showInstrumentPicker() {
