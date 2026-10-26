@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.os.Bundle
 import android.provider.MediaStore
 import android.view.Gravity
+import android.app.AlertDialog
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -52,6 +53,11 @@ class MainActivity : Activity() {
         layout.addView(title)
         layout.addView(camera)
         layout.addView(gallery)
+        val browse = Button(this).apply {
+            text = "Browse instruments (offline)"
+            setOnClickListener { showInstrumentPicker() }
+        }
+        layout.addView(browse)
         layout.addView(result)
         setContentView(layout)
     }
@@ -77,18 +83,28 @@ class MainActivity : Activity() {
         result.text = "Identifying locally…"
         labeler.process(image)
             .addOnSuccessListener { labels ->
-                val match = labels.mapNotNull { label ->
-                    val name = label.text.lowercase(Locale.ROOT)
-                    val entry = InstrumentCatalog.match(name)
-                    if (entry != null) Triple(entry.first, entry.second, label.confidence) else null
-                }.maxByOrNull { it.third }
-                result.text = if (match == null || match.third < 0.50f) {
-                    "Instrument not confidently identified. The bundled general-purpose classifier cannot recognise many regional or rare instruments. Try a clear, close photograph."
+                val match = InstrumentRecognition.identify(
+                    labels.map { RecognitionLabel(it.text, it.confidence) }
+                )
+                result.text = if (match == null) {
+                    "No reliable instrument match. The bundled general-purpose image model does not recognise many instruments. Use Browse instruments to explore the offline catalog."
                 } else {
-                    "${match.first.replaceFirstChar { it.titlecase(Locale.ROOT) }}\nConfidence: ${(match.third * 100).toInt()}% (general image label)\n\n${match.second.history}\nRegion: ${match.second.region}\n\nThis describes the instrument family's history, not the provenance of the photographed object."
+                    "${match.name.replaceFirstChar { it.titlecase(Locale.ROOT) }}\\nConfidence: ${(match.confidence * 100).toInt()}% (general image label)\\n\\n${match.origin.history}\\nRegion: ${match.origin.region}\\n\\nThis describes the instrument family's history, not the provenance of the photographed object."
                 }
             }
             .addOnFailureListener { e -> result.text = "Local recognition failed: ${e.localizedMessage}" }
+    }
+
+    private fun showInstrumentPicker() {
+        val names = InstrumentCatalog.names()
+        AlertDialog.Builder(this)
+            .setTitle("Choose an instrument")
+            .setItems(names.map { it.replaceFirstChar { char -> char.titlecase(Locale.ROOT) } }.toTypedArray()) { _, index ->
+                val name = names[index]
+                val origin = InstrumentCatalog.origin(name) ?: return@setItems
+                result.text = "${name.replaceFirstChar { it.titlecase(Locale.ROOT) }}\\nRegion: ${origin.region}\\n\\n${origin.history}\\n\\nSelected manually; not identified from the photograph."
+            }
+            .show()
     }
 
     override fun onDestroy() {
