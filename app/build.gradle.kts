@@ -14,7 +14,25 @@ android {
         versionName = "0.1.${versionCode}"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
-    buildTypes { release { isMinifyEnabled = false } }
+    signingConfigs {
+        create("preview") {
+            val path = providers.environmentVariable("COLMEY_KEYSTORE_PATH").orNull
+            if (!path.isNullOrBlank()) {
+                storeFile = file(path)
+                storePassword = providers.environmentVariable("COLMEY_KEYSTORE_PASSWORD").get()
+                keyAlias = providers.environmentVariable("COLMEY_KEY_ALIAS").get()
+                keyPassword = providers.environmentVariable("COLMEY_KEY_PASSWORD").get()
+            }
+        }
+    }
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            if (!providers.environmentVariable("COLMEY_KEYSTORE_PATH").orNull.isNullOrBlank()) {
+                signingConfig = signingConfigs.getByName("preview")
+            }
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
