@@ -17,7 +17,7 @@ gradle :app:assembleDebug :app:testDebugUnitTest
 
 Install `app/build/outputs/apk/debug/app-debug.apk` on Android 7.0+.
 
-GitHub Actions builds an APK artifact on every push. A `v*` tag publishes a **prerelease debug APK** under GitHub Releases. Debug APKs are not production-signed Play Store releases.
+GitHub Actions builds an APK artifact on every push. A successful build of `main` creates or updates the **v0.1.0 prerelease debug APK** under GitHub Releases. GitHub Actions must be enabled and the workflow must have permission to write repository contents. Debug APKs are not production-signed Play Store releases.
 
 ## Next milestone
 Replace generic image labels with an evaluated offline instrument-specific model (e.g. quantized TFLite classifier), add an instrument taxonomy with sourced provenance, top-k results, uncertainty, and field-device tests. The current prototype is deliberately conservative about unsupported identifications.
