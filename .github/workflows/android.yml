@@ -47,7 +47,10 @@ jobs:
         run: |
           test -s app/build/outputs/apk/debug/app-debug.apk
           unzip -t app/build/outputs/apk/debug/app-debug.apk | tail -1
-          sha256sum app/build/outputs/apk/debug/app-debug.apk
+          APK=app/build/outputs/apk/debug/app-debug.apk
+          "${ANDROID_HOME}/build-tools/35.0.0/aapt" dump badging "$APK" | grep "^package: name='ai.colmey.instrument'"
+          "${ANDROID_HOME}/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
+          sha256sum "$APK"
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
@@ -100,7 +103,11 @@ jobs:
           arch: x86_64
           profile: pixel_2
           disable-animations: true
-          script: gradle --no-daemon --stacktrace :app:connectedDebugAndroidTest
+          script: |
+            gradle --no-daemon --stacktrace :app:assembleDebug :app:connectedDebugAndroidTest
+            adb install -r app/build/outputs/apk/debug/app-debug.apk
+            adb shell pm path ai.colmey.instrument
+            adb shell am start -W -n ai.colmey.instrument/.MainActivity
       - name: Upload instrumented test reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -125,7 +132,9 @@ jobs:
           name: colmey-ai-debug-apk
           path: release
       - name: Check release asset
-        run: test -s release/app-debug.apk
+        run: |
+          test -s release/app-debug.apk
+          unzip -t release/app-debug.apk | tail -1
       - name: Check signing secrets
         id: signing
         env:
@@ -175,7 +184,8 @@ jobs:
           export COLMEY_KEYSTORE_PATH="$RUNNER_TEMP/colmey-release.jks"
           gradle --no-daemon --stacktrace :app:assembleRelease
           cp app/build/outputs/apk/release/app-release.apk release/colmey-ai.apk
-          "${ANDROID_HOME}/build-tools/35.0.0/apksigner" verify --verbose release/colmey-ai.apk
+          "${ANDROID_HOME}/build-tools/35.0.0/apksigner" verify --verbose --print-certs release/colmey-ai.apk
+          "${ANDROID_HOME}/build-tools/35.0.0/aapt" dump badging release/colmey-ai.apk | grep "^package: name='ai.colmey.instrument'"
           rm -f "$RUNNER_TEMP/colmey-release.jks"
       - name: Publish versioned prerelease
         if: steps.signing.outputs.available == 'true'
