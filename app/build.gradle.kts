@@ -10,8 +10,8 @@ android {
         applicationId = "ai.colmey.instrument"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = providers.environmentVariable("COLMEY_BUILD_NUMBER").orNull?.toIntOrNull() ?: 1
+        versionName = "0.1.${versionCode}"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildTypes { release { isMinifyEnabled = false } }
