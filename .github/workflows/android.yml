@@ -32,7 +32,9 @@ jobs:
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
       - name: Download specialist instrument vision model
-        run: python3 scripts/fetch_instrument_model.py
+        run: |
+          python3 -m pip install --disable-pip-version-check numpy onnxruntime transformers tokenizers
+          python3 scripts/fetch_instrument_model.py
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -145,7 +147,9 @@ jobs:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
       - name: Download specialist model for signed APK
         if: steps.signing.outputs.available == 'true'
-        run: python3 scripts/fetch_instrument_model.py
+        run: |
+          python3 -m pip install --disable-pip-version-check numpy onnxruntime transformers tokenizers
+          python3 scripts/fetch_instrument_model.py
       - uses: gradle/actions/setup-gradle@v4
         if: steps.signing.outputs.available == 'true'
         with:
