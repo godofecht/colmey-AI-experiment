@@ -27,15 +27,15 @@ class InstrumentAppSmokeTest {
         }
     }
 
-    @Test fun bundledMlKitModelCanProcessAnImage() {
+    @Test fun bundledSpecialistModelRunsRealImageInference() {
+        val context = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().targetContext
         val bitmap = Bitmap.createBitmap(224, 224, Bitmap.Config.ARGB_8888)
         bitmap.eraseColor(android.graphics.Color.WHITE)
-        val labeler = ImageLabeling.getClient(ImageLabelerOptions.DEFAULT_OPTIONS)
         try {
-            val labels = Tasks.await(labeler.process(InputImage.fromBitmap(bitmap, 0)), 30, TimeUnit.SECONDS)
-            assertNotNull(labels)
+            // A blank image need not be recognised; this checks that the specialist
+            // ONNX model loads, preprocesses pixels and returns without exceptions.
+            InstrumentVision(context).identify(bitmap)
         } finally {
-            labeler.close()
             bitmap.recycle()
         }
     }
