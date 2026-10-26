@@ -1,45 +1,63 @@
 #!/usr/bin/env python3
-"""Fetch the exact specialist model and preprocessing metadata for reproducible Android builds."""
+"""Package MobileCLIP2-S0 image encoder and precomputed instrument text embeddings."""
 import json
-import os
 import pathlib
+import shutil
 import urllib.request
 
-SOURCE = "onnx-community/musical-instruments-ONNX"
-BASE = "https://huggingface.co/" + SOURCE + "/resolve/main/"
-OUT = pathlib.Path("app/src/main/assets")
-OUT.mkdir(parents=True, exist_ok=True)
+import numpy as np
+import onnxruntime as ort
+from transformers import CLIPTokenizerFast
 
-def fetch(url, path):
-    req = urllib.request.Request(url, headers={"User-Agent": "ColmeyAI-CI/1.0"})
-    with urllib.request.urlopen(req, timeout=120) as response, path.open("wb") as output:
-        import shutil
+SOURCE = "https://huggingface.co/plhery/mobileclip2-onnx/resolve/main/onnx/s0/"
+ASSETS = pathlib.Path("app/src/main/assets")
+ASSETS.mkdir(parents=True, exist_ok=True)
+
+INSTRUMENTS = [
+    "accordion", "bagpipes", "balalaika", "banjo", "bass guitar", "bassoon",
+    "berimbau", "bongo drums", "cello", "clarinet", "conga drums", "didgeridoo",
+    "djembe", "double bass", "drum kit", "erhu", "flute", "french horn",
+    "gamelan", "guitar", "guqin", "guzheng", "harmonica", "harp", "harpsichord",
+    "horn", "kalimba", "kora", "mandolin", "marimba", "mridangam", "oboe",
+    "ocarina", "organ", "oud", "piano", "pipa", "santoor", "sarangi",
+    "saxophone", "shamisen", "sheng", "sitar", "steelpan", "tabla",
+    "tambourine", "timpani", "trombone", "trumpet", "tuba", "ukulele",
+    "veena", "viola", "violin", "xylophone"
+]
+
+def fetch(url, destination):
+    req = urllib.request.Request(url, headers={"User-Agent": "ColmeyAI-CI/2.0"})
+    with urllib.request.urlopen(req, timeout=180) as response, destination.open("wb") as output:
         shutil.copyfileobj(response, output)
-    if path.stat().st_size == 0:
-        raise RuntimeError("Empty downloaded model asset: " + url)
+    if destination.stat().st_size < 1_000_000:
+        raise RuntimeError("Missing or truncated ONNX model: " + url)
 
-def metadata(name, fallback):
-    try:
-        fetch(BASE + name, OUT / fallback)
-    except Exception:
-        fetch("https://huggingface.co/larynx1982/musical-instruments/resolve/main/" + name, OUT / fallback)
+fetch(SOURCE + "vision_model.onnx", ASSETS / "instrument.onnx")
+text_path = ASSETS / "_text_model.onnx"
+fetch(SOURCE + "text_model.onnx", text_path)
+with urllib.request.urlopen(SOURCE + "preprocessor_config.json", timeout=30) as response:
+    processor = json.load(response)
+(ASSETS / "instrument_preprocessor.json").write_text(json.dumps(processor))
 
-metadata("config.json", "instrument_config.json")
-metadata("preprocessor_config.json", "instrument_preprocessor.json")
-config = json.loads((OUT / "instrument_config.json").read_text())
-assert len(config["id2label"]) == 5, "Unexpected classifier label count"
-assert set(s.lower() for s in config["id2label"].values()) == {"drums", "guitar", "piano", "saxophone", "violin"}
-processor = json.loads((OUT / "instrument_preprocessor.json").read_text())
-assert "image_mean" in processor and "image_std" in processor, "Missing preprocessing normalization"
-
-for filename in ("onnx/model_quantized.onnx", "onnx/model.onnx"):
-    try:
-        fetch(BASE + filename, OUT / "instrument.onnx")
-        if (OUT / "instrument.onnx").stat().st_size < 1_000_000:
-            raise RuntimeError("ONNX model unexpectedly small")
-        print("Bundled", filename, (OUT / "instrument.onnx").stat().st_size, "bytes")
-        break
-    except Exception as exc:
-        print("Model candidate unavailable:", filename, exc)
-else:
-    raise RuntimeError("No ONNX image classifier could be downloaded; failing build")
+tokenizer = CLIPTokenizerFast.from_pretrained("openai/clip-vit-base-patch32")
+session = ort.InferenceSession(str(text_path), providers=["CPUExecutionProvider"])
+input_info = session.get_inputs()
+print("Text model inputs:", [(i.name, i.shape, i.type) for i in input_info])
+prompts = ["a photograph of a " + name + " musical instrument" for name in INSTRUMENTS]
+tokens = tokenizer(prompts, padding="max_length", truncation=True, max_length=77, return_tensors="np")
+feeds = {}
+for item in input_info:
+    if item.name not in tokens:
+        raise RuntimeError("Unsupported text model input " + item.name)
+    feeds[item.name] = tokens[item.name].astype(np.int64)
+outputs = session.run(None, feeds)
+vectors = np.asarray(outputs[0])
+if vectors.ndim != 2 or vectors.shape[0] != len(INSTRUMENTS):
+    raise RuntimeError("Unexpected text embedding dimensions " + str(vectors.shape))
+vectors /= np.maximum(np.linalg.norm(vectors, axis=1, keepdims=True), 1e-9)
+(ASSETS / "instrument_embeddings.json").write_text(json.dumps([
+    {"label": name, "vector": vector.tolist()}
+    for name, vector in zip(INSTRUMENTS, vectors)
+]))
+text_path.unlink()
+print("Packaged MobileCLIP2-S0 and", len(INSTRUMENTS), "instrument text embeddings")
