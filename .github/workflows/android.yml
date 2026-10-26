@@ -18,6 +18,8 @@ jobs:
     name: Build, lint and test
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    env:
+      COLMEY_BUILD_NUMBER: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
       - name: Set up Java 17
@@ -60,6 +62,8 @@ jobs:
     name: Android emulator acceptance
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    env:
+      COLMEY_BUILD_NUMBER: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -107,13 +111,12 @@ jobs:
           path: release
       - name: Check release asset
         run: test -s release/app-debug.apk
-      - name: Publish or update prerelease
+      - name: Name release APK
+        run: mv release/app-debug.apk release/colmey-ai.apk
+      - name: Publish versioned prerelease
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          if gh release view v0.1.0 >/dev/null 2>&1; then
-            gh release upload v0.1.0 release/app-debug.apk --clobber
-          else
-            gh release create v0.1.0 release/app-debug.apk --target "${GITHUB_SHA}" --title "Colmey AI v0.1.0 (Android preview)" --notes "Offline instrument explorer prototype. Debug-signed preview APK. General-purpose recognition is limited and origin descriptions are not object provenance." --prerelease
-          fi
+          TAG="v0.1.${GITHUB_RUN_NUMBER}"
+          gh release create "$TAG" release/colmey-ai.apk --target "${GITHUB_SHA}" --title "Colmey AI $TAG (Android preview)" --notes "Debug-signed Android preview. The app checks for updates on launch. Android may require uninstalling older builds because CI debug signing keys are not persistent." --prerelease
