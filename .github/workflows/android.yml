@@ -1,55 +1,83 @@
-name: Android APK and Release
+name: Android CI and Release
+
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
+
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: android-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  build:
+  verify:
+    name: Build, lint and test
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-      - name: Install Android SDK platform using runner SDK
-        shell: bash
-        run: |
-          set -euo pipefail
-          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
-          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -x "$SDKMANAGER" ]; then
-            SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -path "*/bin/sdkmanager" -type f | sort -V | tail -n 1)"
-          fi
-          test -x "$SDKMANAGER"
-          "$SDKMANAGER" --sdk_root="$SDK_ROOT" --install "platforms;android-35" "build-tools;35.0.0"
-      - uses: gradle/actions/setup-gradle@v4
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
-      - name: Compile and test
-        run: gradle --stacktrace --no-daemon :app:assembleDebug :app:testDebugUnitTest
-      - name: Verify installable APK exists
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+      - name: Compile, lint and unit tests
+        run: gradle --no-daemon --stacktrace :app:assembleDebug :app:lintDebug :app:testDebugUnitTest
+      - name: Verify APK archive
         run: |
           test -s app/build/outputs/apk/debug/app-debug.apk
           unzip -t app/build/outputs/apk/debug/app-debug.apk | tail -1
-      - uses: actions/upload-artifact@v4
+          sha256sum app/build/outputs/apk/debug/app-debug.apk
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
         with:
           name: colmey-ai-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-      - name: Create or update v0.1.0 prerelease
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+          retention-days: 30
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-lint-report
+          path: app/build/reports/lint-results-debug.html
+          if-no-files-found: ignore
+
+  release:
+    name: Publish verified preview APK
+    needs: verify
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified APK
+        uses: actions/download-artifact@v4
+        with:
+          name: colmey-ai-debug-apk
+          path: release
+      - name: Check release asset
+        run: test -s release/app-debug.apk
+      - name: Publish or update prerelease
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           if gh release view v0.1.0 >/dev/null 2>&1; then
-            gh release upload v0.1.0 app/build/outputs/apk/debug/app-debug.apk --clobber
+            gh release upload v0.1.0 release/app-debug.apk --clobber
           else
-            gh release create v0.1.0 app/build/outputs/apk/debug/app-debug.apk --target "${GITHUB_SHA}" --title "Colmey AI v0.1.0 (Android preview)" --notes "Offline instrument explorer prototype. Debug-signed preview APK, not a production-signed release. Generic image labeling has limited instrument coverage." --prerelease
+            gh release create v0.1.0 release/app-debug.apk --target "${GITHUB_SHA}" --title "Colmey AI v0.1.0 (Android preview)" --notes "Offline instrument explorer prototype. Debug-signed preview APK. General-purpose recognition is limited and origin descriptions are not object provenance." --prerelease
           fi
