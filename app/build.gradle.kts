@@ -43,6 +43,7 @@ android {
 dependencies {
     implementation("com.google.mlkit:image-labeling:17.0.9")
     implementation("androidx.core:core:1.13.1")
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.19.2")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:core:1.6.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
