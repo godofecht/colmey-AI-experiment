@@ -8,11 +8,13 @@ import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
 import org.json.JSONObject
+import org.json.JSONArray
+import kotlin.math.sqrt
 import java.nio.FloatBuffer
 import kotlin.math.exp
 
 /**
- * Specialist five-class ViT. Model and processor metadata are bundled by CI;
+ * MobileCLIP2-S0 image/text retrieval. Model and text vectors are bundled by CI;
  * never silently substitute the generic image labeler for a missing model.
  */
 data class InstrumentScore(val label: String, val probability: Float)
@@ -28,10 +30,10 @@ class InstrumentVision(private val context: Context) {
     fun identify(bitmap: Bitmap): VisionResult {
         val started = android.os.SystemClock.elapsedRealtime()
         val metadata = context.assets.open("instrument_preprocessor.json").bufferedReader().use { JSONObject(it.readText()) }
-        val config = context.assets.open("instrument_config.json").bufferedReader().use { JSONObject(it.readText()) }
+        val embeddings = context.assets.open("instrument_embeddings.json").bufferedReader().use { JSONArray(it.readText()) }
         val sizeObject = metadata.optJSONObject("size")
-        val height = sizeObject?.optInt("height", 224) ?: 224
-        val width = sizeObject?.optInt("width", 224) ?: 224
+        val height = sizeObject?.optInt("height", 256) ?: 256
+        val width = sizeObject?.optInt("width", 256) ?: 256
         require(width in 1..512 && height in 1..512)
         val mean = metadata.optJSONArray("image_mean")
         val std = metadata.optJSONArray("image_std")
@@ -63,14 +65,21 @@ class InstrumentVision(private val context: Context) {
             OnnxTensor.createTensor(env, FloatBuffer.wrap(input), longArrayOf(1, 3, height.toLong(), width.toLong())).use { tensor ->
                 session.run(mapOf(name to tensor)).use { result ->
                     val output = (result[0].value as Array<*>)[0] as FloatArray
-                    require(output.isNotEmpty() && output.all { it.isFinite() }) { "Invalid model output" }
-                    val maximum = output.maxOrNull() ?: error("Empty model output")
-                    val exponents = output.map { exp((it - maximum).toDouble()) }
-                    val denominator = exponents.sum()
-                    val labels = config.getJSONObject("id2label")
-                    require(output.size == labels.length()) { "Output label count mismatch" }
-                    val scores = output.indices.map { index ->
-                        InstrumentScore(labels.getString(index.toString()), (exponents[index] / denominator).toFloat())
+                    require(output.isNotEmpty() && output.all { it.isFinite() }) { "Invalid MobileCLIP output" }
+                    val norm = sqrt(output.sumOf { (it * it).toDouble() }).toFloat().coerceAtLeast(1e-9f)
+                    val raw = (0 until embeddings.length()).map { index ->
+                        val item = embeddings.getJSONObject(index)
+                        val vector = item.getJSONArray("vector")
+                        require(vector.length() == output.size) { "Embedding dimensions mismatch" }
+                        var similarity = 0.0
+                        for (j in output.indices) similarity += output[j] / norm * vector.getDouble(j)
+                        InstrumentScore(item.getString("label"), similarity.toFloat())
+                    }
+                    val maximum = raw.maxOf { it.probability }
+                    val exponentials = raw.map { exp(((it.probability - maximum) * 20).toDouble()) }
+                    val sum = exponentials.sum()
+                    val scores = raw.mapIndexed { index, score ->
+                        score.copy(probability = (exponentials[index] / sum).toFloat())
                     }.sortedByDescending { it.probability }
                     return VisionResult(scores, android.os.SystemClock.elapsedRealtime() - started, bitmap.width, bitmap.height)
                 }
