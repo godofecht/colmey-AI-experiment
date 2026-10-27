@@ -81,11 +81,15 @@ jobs:
       - uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
-      - name: Download instrument model for emulator tests
+      - name: Download instrument model and real photo fixtures for emulator tests
         run: |
-          python3 -m pip install --disable-pip-version-check numpy onnxruntime tokenizers
-          python3 -m py_compile scripts/fetch_instrument_model.py
+          python3 -m pip install --disable-pip-version-check numpy onnxruntime tokenizers pillow
+          python3 -m py_compile scripts/fetch_instrument_model.py scripts/fetch_instrument_test_photos.py
           python3 scripts/fetch_instrument_model.py
+          python3 scripts/fetch_instrument_test_photos.py
+          test -s app/src/androidTest/assets/instrument_photos/guitar.jpg
+          test -s app/src/androidTest/assets/instrument_photos/violin.jpg
+          test -s app/src/androidTest/assets/instrument_photos/piano.jpg
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
@@ -108,6 +112,8 @@ jobs:
             adb install -r app/build/outputs/apk/debug/app-debug.apk
             adb shell pm path ai.colmey.instrument
             adb shell am start -W -n ai.colmey.instrument/.MainActivity
+            adb logcat -d -s ColmeyVisionBenchmark:I > instrument-photo-benchmark.log
+            cat instrument-photo-benchmark.log
       - name: Upload instrumented test reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -116,6 +122,7 @@ jobs:
           path: |
             app/build/reports/androidTests/
             app/build/outputs/androidTest-results/
+            instrument-photo-benchmark.log
           if-no-files-found: ignore
 
   release:
