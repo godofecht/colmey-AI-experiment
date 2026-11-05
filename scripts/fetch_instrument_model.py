@@ -49,13 +49,20 @@ session = ort.InferenceSession(str(text_path), providers=["CPUExecutionProvider"
 input_info = session.get_inputs()
 print("Text model inputs:", [(i.name, i.shape, i.type) for i in input_info])
 prompts = ["a photograph of a " + name + " musical instrument" for name in INSTRUMENTS]
-tokens = np.asarray([item.ids for item in tokenizer.encode_batch(prompts)], dtype=np.int64)
+encoded = tokenizer.encode_batch(prompts)
+tokens = np.asarray([item.ids for item in encoded], dtype=np.int64)
+# CLIP uses the same token ID (49407) for padding and the real EOS token.
+# Comparing IDs to the padding ID incorrectly masks every prompt's real EOS.
+attention_masks = np.asarray([item.attention_mask for item in encoded], dtype=np.int64)
+assert tokens.shape == attention_masks.shape == (len(INSTRUMENTS), 77)
+assert np.all((attention_masks == 0) | (attention_masks == 1))
+assert np.all(np.sum(attention_masks, axis=1) >= 2)
 feeds = {}
 for item in input_info:
     if item.name == "input_ids":
         feeds[item.name] = tokens
     elif item.name == "attention_mask":
-        feeds[item.name] = (tokens != 49407).astype(np.int64)
+        feeds[item.name] = attention_masks
     else:
         raise RuntimeError("Unsupported text model input " + item.name)
 outputs = session.run(None, feeds)
