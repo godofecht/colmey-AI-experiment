@@ -43,20 +43,36 @@ tokenizer_file = ASSETS / "_tokenizer.json"
 with urllib.request.urlopen("https://huggingface.co/plhery/mobileclip2-onnx/resolve/main/tokenizer.json", timeout=90) as response, tokenizer_file.open("wb") as out:
     shutil.copyfileobj(response, out)
 tokenizer = Tokenizer.from_file(str(tokenizer_file))
-tokenizer.enable_truncation(max_length=77)
-tokenizer.enable_padding(length=77, pad_id=49407, pad_token="<|endoftext|>")
 session = ort.InferenceSession(str(text_path), providers=["CPUExecutionProvider"])
 input_info = session.get_inputs()
 print("Text model inputs:", [(i.name, i.shape, i.type) for i in input_info])
 prompts = ["a photograph of a " + name + " musical instrument" for name in INSTRUMENTS]
-encoded = tokenizer.encode_batch(prompts)
-tokens = np.asarray([item.ids for item in encoded], dtype=np.int64)
-# CLIP uses the same token ID (49407) for padding and the real EOS token.
-# Comparing IDs to the padding ID incorrectly masks every prompt's real EOS.
-attention_masks = np.asarray([item.attention_mask for item in encoded], dtype=np.int64)
+
+# The ONNX text tower was exported using OpenCLIP's tokenizer, which requires
+# explicit CLIP BOS/EOS tokens and an exact 77-token context. The downloaded
+# raw tokenizers JSON does not guarantee equivalent special-token postprocessing.
+# Encode only the BPE body, then construct the sequence deterministically.
+CLIP_BOS = 49406
+CLIP_EOS = 49407
+CLIP_CONTEXT = 77
+encoded = tokenizer.encode_batch(prompts, add_special_tokens=False)
+tokens = np.full((len(INSTRUMENTS), CLIP_CONTEXT), CLIP_EOS, dtype=np.int64)
+attention_masks = np.zeros_like(tokens)
+for index, item in enumerate(encoded):
+    body = item.ids
+    if len(body) > CLIP_CONTEXT - 2:
+        raise RuntimeError("Prompt exceeds CLIP context: " + prompts[index])
+    tokens[index, 0] = CLIP_BOS
+    tokens[index, 1 : len(body) + 1] = body
+    tokens[index, len(body) + 1] = CLIP_EOS
+    attention_masks[index, : len(body) + 2] = 1
+
 assert tokens.shape == attention_masks.shape == (len(INSTRUMENTS), 77)
-assert np.all((attention_masks == 0) | (attention_masks == 1))
-assert np.all(np.sum(attention_masks, axis=1) >= 2)
+assert np.all(tokens[:, 0] == CLIP_BOS)
+assert np.all(np.sum(attention_masks, axis=1) >= 3)
+assert np.all(np.sum(attention_masks, axis=1) <= CLIP_CONTEXT)
+print("CLIP token sanity: first IDs", tokens[0, :12].tolist(),
+      "first EOS index", int(np.sum(attention_masks[0])) - 1, flush=True)
 feeds = {}
 for item in input_info:
     if item.name == "input_ids":
