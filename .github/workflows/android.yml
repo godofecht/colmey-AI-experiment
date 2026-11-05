@@ -103,6 +103,10 @@ jobs:
       - name: Compare Python ONNX reference predictions with Android test expectations
         continue-on-error: true
         run: python3 scripts/diagnose_instrument_model.py
+      - name: Audit matched MobileCLIP2-S2 vision/text exports on real photos
+        continue-on-error: true
+        timeout-minutes: 15
+        run: python3 scripts/diagnose_variant_s2.py
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
