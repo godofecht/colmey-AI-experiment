@@ -100,6 +100,9 @@ jobs:
           test -s app/src/androidTest/assets/instrument_photos/guitar.jpg
           test -s app/src/androidTest/assets/instrument_photos/violin.jpg
           test -s app/src/androidTest/assets/instrument_photos/piano.jpg
+      - name: Compare Python ONNX reference predictions with Android test expectations
+        continue-on-error: true
+        run: python3 scripts/diagnose_instrument_model.py
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
