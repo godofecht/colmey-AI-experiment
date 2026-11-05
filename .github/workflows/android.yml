@@ -120,11 +120,11 @@ jobs:
           script: |
             # Preserve the real Gradle exit code, but collect model ranks even
             # when acceptance fails so the next repair can target the classifier.
-            set +e
-            gradle --no-daemon --stacktrace :app:assembleDebug :app:connectedDebugAndroidTest
-            test_status=$?
-            set -e
-            adb logcat -d -s ColmeyVisionBenchmark:I > instrument-photo-benchmark.log || true
+            # The emulator runner wraps this script in an exit-on-error shell.
+            # Protect the Gradle command itself so logcat still executes on failure.
+            test_status=0
+            gradle --no-daemon --stacktrace :app:assembleDebug :app:connectedDebugAndroidTest || test_status=$?
+            adb logcat -d -s ColmeyVisionBenchmark:I '*:S' > instrument-photo-benchmark.log || true
             cat instrument-photo-benchmark.log
             if [ "$test_status" -ne 0 ]; then
               exit "$test_status"
