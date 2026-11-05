@@ -97,8 +97,6 @@ vectors /= np.maximum(np.linalg.norm(vectors, axis=1, keepdims=True), 1e-9)
     {"label": name, "vector": vector.tolist()}
     for name, vector in zip(INSTRUMENTS, vectors)
 ]))
-text_path.unlink()
-tokenizer_file.unlink()
 vision = ort.InferenceSession(str(ASSETS / "instrument.onnx"), providers=["CPUExecutionProvider"])
 vision_inputs = vision.get_inputs()
 vision_outputs = vision.get_outputs()
@@ -111,4 +109,63 @@ if not any(o.name == "image_embeds" for o in vision_outputs):
 if vectors.shape[1] != 512:
     raise RuntimeError("Expected MobileCLIP2-S0 512-dimensional embeddings")
 print("Vision model parsed and embeddings validated")
+
+# Audit fixed CLIP prompt templates against actual photos *without* selecting
+# or tuning a template on these three acceptance fixtures. This distinguishes
+# poorly aligned text prompts from image preprocessing/model export problems.
+photo_dir = pathlib.Path("app/src/androidTest/assets/instrument_photos")
+reference_labels = ("guitar", "violin", "piano")
+if all((photo_dir / (label + ".jpg")).is_file() for label in reference_labels):
+    from diagnose_instrument_model import preprocess
+
+    image_vectors = []
+    for label in reference_labels:
+        image_tensor = preprocess(photo_dir / (label + ".jpg"), processor)
+        image_vector = np.asarray(vision.run(["image_embeds"], {"pixel_values": image_tensor})[0][0], dtype=np.float32)
+        image_vector /= max(float(np.linalg.norm(image_vector)), 1e-9)
+        image_vectors.append(image_vector)
+
+    templates = (
+        "{}",
+        "a {}",
+        "a photo of a {}",
+        "an image of a {}",
+        "a close-up photo of a {}",
+        "a person playing a {}",
+        "the musical instrument {}",
+        "a photograph of a {} musical instrument",
+    )
+    for template in templates:
+        audit_prompts = [template.format(name) for name in INSTRUMENTS]
+        audit_encoded = tokenizer.encode_batch(audit_prompts, add_special_tokens=False)
+        audit_tokens = np.full((len(INSTRUMENTS), CLIP_CONTEXT), CLIP_EOS, dtype=np.int64)
+        audit_masks = np.zeros_like(audit_tokens)
+        for index, item in enumerate(audit_encoded):
+            if len(item.ids) > CLIP_CONTEXT - 2:
+                raise RuntimeError("Benchmark prompt exceeds CLIP context: " + audit_prompts[index])
+            audit_tokens[index, 0] = CLIP_BOS
+            audit_tokens[index, 1 : len(item.ids) + 1] = item.ids
+            audit_tokens[index, len(item.ids) + 1] = CLIP_EOS
+            audit_masks[index, : len(item.ids) + 2] = 1
+        audit_feeds = {}
+        for text_input in input_info:
+            if text_input.name == "input_ids":
+                audit_feeds[text_input.name] = audit_tokens
+            elif text_input.name == "attention_mask":
+                audit_feeds[text_input.name] = audit_masks
+            else:
+                raise RuntimeError("Unsupported benchmark text input " + text_input.name)
+        audit_vectors = np.asarray(session.run(["text_embeds"], audit_feeds)[0], dtype=np.float32)
+        audit_vectors /= np.maximum(np.linalg.norm(audit_vectors, axis=1, keepdims=True), 1e-9)
+        ranks = []
+        for label, image_vector in zip(reference_labels, image_vectors):
+            scores = audit_vectors @ image_vector
+            order = np.argsort(-scores)
+            rank = int(np.where(np.asarray(INSTRUMENTS)[order] == label)[0][0]) + 1
+            ranks.append(rank)
+        print(f"Prompt audit: template={template!r} ranks={dict(zip(reference_labels, ranks))} "
+              f"top5={sum(rank <= 5 for rank in ranks)}/{len(ranks)}", flush=True)
+
+text_path.unlink()
+tokenizer_file.unlink()
 print("Packaged MobileCLIP2-S0 and", len(INSTRUMENTS), "instrument text embeddings")
