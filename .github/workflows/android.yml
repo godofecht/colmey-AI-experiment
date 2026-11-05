@@ -91,7 +91,6 @@ jobs:
         run: |
           python3 -m pip install --disable-pip-version-check numpy onnxruntime tokenizers pillow
           python3 -m py_compile scripts/fetch_instrument_model.py scripts/fetch_instrument_test_photos.py
-          python3 scripts/fetch_instrument_model.py
           if [ "${{ steps.photo-cache.outputs.cache-hit }}" != "true" ]; then
             python3 scripts/fetch_instrument_test_photos.py
           else
@@ -100,6 +99,7 @@ jobs:
           test -s app/src/androidTest/assets/instrument_photos/guitar.jpg
           test -s app/src/androidTest/assets/instrument_photos/violin.jpg
           test -s app/src/androidTest/assets/instrument_photos/piano.jpg
+          python3 scripts/fetch_instrument_model.py
       - name: Compare Python ONNX reference predictions with Android test expectations
         continue-on-error: true
         run: python3 scripts/diagnose_instrument_model.py
