@@ -81,12 +81,22 @@ jobs:
       - uses: android-actions/setup-android@v4
         with:
           packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+      - name: Restore verified instrument photo fixture cache
+        id: photo-cache
+        uses: actions/cache@v4
+        with:
+          path: app/src/androidTest/assets/instrument_photos
+          key: instrument-photos-v1-${{ hashFiles('scripts/fetch_instrument_test_photos.py') }}
       - name: Download instrument model and real photo fixtures for emulator tests
         run: |
           python3 -m pip install --disable-pip-version-check numpy onnxruntime tokenizers pillow
           python3 -m py_compile scripts/fetch_instrument_model.py scripts/fetch_instrument_test_photos.py
           python3 scripts/fetch_instrument_model.py
-          python3 scripts/fetch_instrument_test_photos.py
+          if [ "${{ steps.photo-cache.outputs.cache-hit }}" != "true" ]; then
+            python3 scripts/fetch_instrument_test_photos.py
+          else
+            echo 'Reusing previously downloaded real instrument photo fixtures'
+          fi
           test -s app/src/androidTest/assets/instrument_photos/guitar.jpg
           test -s app/src/androidTest/assets/instrument_photos/violin.jpg
           test -s app/src/androidTest/assets/instrument_photos/piano.jpg
