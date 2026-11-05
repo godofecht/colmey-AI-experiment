@@ -32,15 +32,34 @@ class InstrumentVision(private val context: Context) {
         val metadata = context.assets.open("instrument_preprocessor.json").bufferedReader().use { JSONObject(it.readText()) }
         val embeddings = context.assets.open("instrument_embeddings.json").bufferedReader().use { JSONArray(it.readText()) }
         val sizeObject = metadata.optJSONObject("size")
-        val height = sizeObject?.optInt("height", 256) ?: 256
-        val width = sizeObject?.optInt("width", 256) ?: 256
-        require(width in 1..512 && height in 1..512)
+        val cropSize = metadata.optJSONObject("crop_size")
+        val height = cropSize?.optInt("height", 256) ?: sizeObject?.optInt("height", 256) ?: 256
+        val width = cropSize?.optInt("width", 256) ?: sizeObject?.optInt("width", 256) ?: 256
+        val shortestEdge = sizeObject?.optInt("shortest_edge", minOf(height, width)) ?: minOf(height, width)
+        require(width in 1..512 && height in 1..512 && shortestEdge in 1..2048)
         val mean = metadata.optJSONArray("image_mean")
         val std = metadata.optJSONArray("image_std")
         val rescale = metadata.optDouble("rescale_factor", 1.0 / 255.0).toFloat()
-        val scaled = Bitmap.createScaledBitmap(bitmap, width, height, true)
+
+        // MobileCLIP's CLIPImageProcessor resizes the shortest edge while
+        // preserving the aspect ratio, then takes a centered 256x256 crop.
+        // Stretching the whole photo to a square changes the image embedding.
+        val originalShortest = minOf(bitmap.width, bitmap.height)
+        require(originalShortest > 0)
+        val scaledWidth = maxOf(width, ((bitmap.width.toLong() * shortestEdge + originalShortest - 1) / originalShortest).toInt())
+        val scaledHeight = maxOf(height, ((bitmap.height.toLong() * shortestEdge + originalShortest - 1) / originalShortest).toInt())
+        val resized = Bitmap.createScaledBitmap(bitmap, scaledWidth, scaledHeight, true)
+        val centered = Bitmap.createBitmap(
+            resized,
+            (scaledWidth - width) / 2,
+            (scaledHeight - height) / 2,
+            width,
+            height
+        )
         val pixels = IntArray(width * height)
-        scaled.getPixels(pixels, 0, width, 0, 0, width, height)
+        centered.getPixels(pixels, 0, width, 0, 0, width, height)
+        if (centered !== resized) centered.recycle()
+        if (resized !== bitmap) resized.recycle()
         val plane = width * height
         val input = FloatArray(plane * 3)
         for (i in pixels.indices) {
@@ -52,7 +71,6 @@ class InstrumentVision(private val context: Context) {
                 input[channel * plane + i] = (channels[channel] * rescale - m) / s
             }
         }
-        if (scaled !== bitmap) scaled.recycle()
         val modelFile = java.io.File(context.filesDir, "instrument.onnx")
         if (!modelFile.exists()) {
             context.assets.open("instrument.onnx").use { source ->
