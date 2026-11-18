@@ -9,6 +9,8 @@ import numpy as np
 import onnxruntime as ort
 from tokenizers import Tokenizer
 
+from clip_tokens import CLIP_CONTEXT, encode_prompts
+
 SOURCE = "https://huggingface.co/plhery/mobileclip2-onnx/resolve/main/onnx/s0/"
 ASSETS = pathlib.Path("app/src/main/assets")
 ASSETS.mkdir(parents=True, exist_ok=True)
@@ -48,29 +50,9 @@ input_info = session.get_inputs()
 print("Text model inputs:", [(i.name, i.shape, i.type) for i in input_info])
 prompts = ["a photograph of a " + name + " musical instrument" for name in INSTRUMENTS]
 
-# The ONNX text tower was exported using OpenCLIP's tokenizer, which requires
-# explicit CLIP BOS/EOS tokens and an exact 77-token context. The downloaded
-# raw tokenizers JSON does not guarantee equivalent special-token postprocessing.
-# Encode only the BPE body, then construct the sequence deterministically.
-CLIP_BOS = 49406
-CLIP_EOS = 49407
-CLIP_CONTEXT = 77
-encoded = tokenizer.encode_batch(prompts, add_special_tokens=False)
-tokens = np.full((len(INSTRUMENTS), CLIP_CONTEXT), CLIP_EOS, dtype=np.int64)
-attention_masks = np.zeros_like(tokens)
-for index, item in enumerate(encoded):
-    body = item.ids
-    if len(body) > CLIP_CONTEXT - 2:
-        raise RuntimeError("Prompt exceeds CLIP context: " + prompts[index])
-    tokens[index, 0] = CLIP_BOS
-    tokens[index, 1 : len(body) + 1] = body
-    tokens[index, len(body) + 1] = CLIP_EOS
-    attention_masks[index, : len(body) + 2] = 1
-
-assert tokens.shape == attention_masks.shape == (len(INSTRUMENTS), 77)
-assert np.all(tokens[:, 0] == CLIP_BOS)
-assert np.all(np.sum(attention_masks, axis=1) >= 3)
-assert np.all(np.sum(attention_masks, axis=1) <= CLIP_CONTEXT)
+# Token layout (BOS, BPE body, EOS, zero padding) lives in clip_tokens.py.
+tokens, attention_masks = encode_prompts(tokenizer, prompts)
+assert tokens.shape == attention_masks.shape == (len(INSTRUMENTS), CLIP_CONTEXT)
 print("CLIP token sanity: first IDs", tokens[0, :12].tolist(),
       "first EOS index", int(np.sum(attention_masks[0])) - 1, flush=True)
 feeds = {}
@@ -137,16 +119,7 @@ if all((photo_dir / (label + ".jpg")).is_file() for label in reference_labels):
     )
     for template in templates:
         audit_prompts = [template.format(name) for name in INSTRUMENTS]
-        audit_encoded = tokenizer.encode_batch(audit_prompts, add_special_tokens=False)
-        audit_tokens = np.full((len(INSTRUMENTS), CLIP_CONTEXT), CLIP_EOS, dtype=np.int64)
-        audit_masks = np.zeros_like(audit_tokens)
-        for index, item in enumerate(audit_encoded):
-            if len(item.ids) > CLIP_CONTEXT - 2:
-                raise RuntimeError("Benchmark prompt exceeds CLIP context: " + audit_prompts[index])
-            audit_tokens[index, 0] = CLIP_BOS
-            audit_tokens[index, 1 : len(item.ids) + 1] = item.ids
-            audit_tokens[index, len(item.ids) + 1] = CLIP_EOS
-            audit_masks[index, : len(item.ids) + 2] = 1
+        audit_tokens, audit_masks = encode_prompts(tokenizer, audit_prompts)
         audit_feeds = {}
         for text_input in input_info:
             if text_input.name == "input_ids":

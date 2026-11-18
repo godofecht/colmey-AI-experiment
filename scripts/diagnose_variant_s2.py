@@ -15,15 +15,13 @@ import numpy as np
 import onnxruntime as ort
 from tokenizers import Tokenizer
 
+from clip_tokens import encode_prompts
 from diagnose_instrument_model import preprocess
 
 BASE = "https://huggingface.co/plhery/mobileclip2-onnx/resolve/main/"
 ASSETS = pathlib.Path("app/src/main/assets")
 PHOTOS = pathlib.Path("app/src/androidTest/assets/instrument_photos")
 REFERENCE_LABELS = ("guitar", "violin", "piano")
-BOS = 49406
-EOS = 49407
-CONTEXT = 77
 
 
 def fetch(relative_path, output):
@@ -61,18 +59,10 @@ def main():
         vision = ort.InferenceSession(str(vision_path), providers=["CPUExecutionProvider"])
         text = ort.InferenceSession(str(text_path), providers=["CPUExecutionProvider"])
         token_encoder = Tokenizer.from_file(str(tokenizer_path))
-        encoded = token_encoder.encode_batch(
+        tokens, _ = encode_prompts(
+            token_encoder,
             ["a photograph of a " + label + " musical instrument" for label in labels],
-            add_special_tokens=False,
         )
-        tokens = np.full((len(labels), CONTEXT), EOS, dtype=np.int64)
-        for index, item in enumerate(encoded):
-            body = item.ids
-            if len(body) > CONTEXT - 2:
-                raise RuntimeError("S2 prompt exceeds CLIP context: " + labels[index])
-            tokens[index, 0] = BOS
-            tokens[index, 1:len(body) + 1] = body
-            tokens[index, len(body) + 1] = EOS
 
         text_inputs = text.get_inputs()
         if len(text_inputs) != 1 or text_inputs[0].name != "input_ids":

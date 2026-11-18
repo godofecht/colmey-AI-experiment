@@ -34,7 +34,7 @@ jobs:
       - name: Download specialist instrument vision model
         run: |
           python3 -m pip install --disable-pip-version-check numpy onnxruntime tokenizers
-          python3 -m py_compile scripts/fetch_instrument_model.py
+          python3 -m py_compile scripts/clip_tokens.py scripts/fetch_instrument_model.py
           python3 scripts/fetch_instrument_model.py
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -90,7 +90,7 @@ jobs:
       - name: Download instrument model and real photo fixtures for emulator tests
         run: |
           python3 -m pip install --disable-pip-version-check numpy onnxruntime tokenizers pillow
-          python3 -m py_compile scripts/fetch_instrument_model.py scripts/fetch_instrument_test_photos.py
+          python3 -m py_compile scripts/clip_tokens.py scripts/fetch_instrument_model.py scripts/fetch_instrument_test_photos.py
           if [ "${{ steps.photo-cache.outputs.cache-hit }}" != "true" ]; then
             python3 scripts/fetch_instrument_test_photos.py
           else
@@ -182,7 +182,7 @@ jobs:
         if: steps.signing.outputs.available == 'true'
         run: |
           python3 -m pip install --disable-pip-version-check numpy onnxruntime tokenizers
-          python3 -m py_compile scripts/fetch_instrument_model.py
+          python3 -m py_compile scripts/clip_tokens.py scripts/fetch_instrument_model.py
           python3 scripts/fetch_instrument_model.py
       - uses: gradle/actions/setup-gradle@v4
         if: steps.signing.outputs.available == 'true'
